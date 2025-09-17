@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Habit Spark</title>
+    <meta name="theme-color" content="#0ea5e9" />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icons/icon-192.png" />
+    <meta name="description" content="Tiny, offline-first habit counter with streaks." />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link rel="stylesheet" href="./app.css" />
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  </head>
+  <body>
+    <header class="container">
+      <h1>Habit Spark</h1>
+      <p class="muted">Fast, offline habit counter with streaks.</p>
+    </header>
+
+    <main class="container">
+      <section class="card">
+        <h2>Add a habit</h2>
+        <form id="add-form" autocomplete="off">
+          <div class="row">
+            <label for="name">Name</label>
+            <input id="name" name="name" type="text" placeholder="Drink water" required />
+          </div>
+          <div class="row">
+            <label for="target">Daily target</label>
+            <input id="target" name="target" type="number" min="1" value="1" required />
+          </div>
+          <button type="submit" class="btn">Add</button>
+        </form>
+      </section>
+
+      <section id="habits" class="grid"></section>
+    </main>
+
+    <div id="toast" role="status" aria-live="polite"></div>
+
+    <footer class="container footer">
+      <small>Data is stored privately on this device. Install to Home Screen for the best experience.</small>
+    </footer>
+
+    <script defer src="./app.js"></script>
+    <script>
+      // Register service worker
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('./service-worker.js');
+        });
+        // Prompt user to refresh when SW updates
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          // Page will reload automatically when a new SW takes control
+        });
+      }
+    </script>
+  </body>
+</html>
