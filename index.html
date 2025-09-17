@@ -21,8 +21,18 @@
 
     <main class="container">
       <section class="card">
-        <h2>Add a habit</h2>
+        <h2>Plan your habit</h2>
         <form id="add-form" autocomplete="off">
+          <div class="row">
+            <label for="preset">Starter ideas</label>
+            <select id="preset" name="preset">
+              <option value="">Custom habit</option>
+            </select>
+          </div>
+          <div id="preset-preview" class="preset-preview hidden">
+            <span id="preset-category" class="badge category-badge"></span>
+            <p id="preset-description" class="muted"></p>
+          </div>
           <div class="row">
             <label for="name">Name</label>
             <input id="name" name="name" type="text" placeholder="Drink water" required />
@@ -31,7 +41,21 @@
             <label for="target">Daily target</label>
             <input id="target" name="target" type="number" min="1" value="1" required />
           </div>
-          <button type="submit" class="btn">Add</button>
+          <div id="goal-fields" class="goal-fields"></div>
+          <div class="row column">
+            <label for="motivation">Motivation</label>
+            <textarea id="motivation" name="motivation" placeholder="Write a short pep talk you'll see on the habit card"></textarea>
+            <small class="muted">This message appears on your habit card.</small>
+          </div>
+          <div class="row column">
+            <label for="expected">What to expect</label>
+            <textarea id="expected" name="expected" placeholder="List the benefits you’re working toward. One per line."></textarea>
+          </div>
+          <div class="row column">
+            <label for="tips">Tips to stay on track</label>
+            <textarea id="tips" name="tips" placeholder="Add practical reminders. One per line."></textarea>
+          </div>
+          <button type="submit" class="btn">Start tracking</button>
         </form>
       </section>
 
