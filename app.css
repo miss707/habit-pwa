@@ -63,12 +63,55 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 
 .habit-header{display:flex;align-items:center;justify-content:space-between;gap:8px}
 .habit h3{margin:0;font-size:16px}
 .habit-description{margin:0;color:var(--muted);font-size:14px}
-.controls{display:flex;align-items:center;gap:8px}
-.count{font-size:28px;font-weight:700;min-width:44px;text-align:center}
-.icon-btn{
+.controls{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.controls-counter{width:100%;align-items:center;gap:12px}
+.controls-counter .count-info{
+  flex:1 1 160px;
+  display:flex;
+  align-items:baseline;
+  justify-content:center;
+  gap:6px;
+  font-size:14px;
+  color:var(--muted);
+  text-align:center;
+}
+.count-info strong{font-size:22px;color:var(--text)}
+.controls-binary{gap:16px}
+.count-status{font-size:14px;color:var(--muted);min-width:140px}
+.action-btn{
   display:inline-flex;align-items:center;justify-content:center;
-  width:40px;height:40px;border-radius:12px;border:1px solid #1e293b;
-  background:#0b1325;color:var(--text);cursor:pointer;font-size:20px;
+  padding:10px 16px;border-radius:12px;border:1px solid #1e293b;
+  background:#0b1325;color:var(--text);font-weight:600;cursor:pointer;
+  transition:background .2s, transform .2s, box-shadow .2s;
+}
+.action-btn.icon{width:44px;height:44px;font-size:24px;padding:0}
+.action-btn.primary{
+  background:linear-gradient(180deg,#22d3ee,#0284c7);
+  color:#fff;
+  box-shadow:0 8px 20px rgba(2,132,199,0.35);
+}
+.action-btn.secondary{background:#111c2f;color:var(--text)}
+.action-btn:focus-visible{outline:none;box-shadow:0 0 0 4px var(--ring)}
+.action-btn:disabled{opacity:0.55;cursor:not-allowed;box-shadow:none}
+.habit.complete{
+  border-color:rgba(34,197,94,0.6);
+  box-shadow:0 0 0 1px rgba(34,197,94,0.35),0 12px 30px rgba(34,197,94,0.25);
+}
+.habit.complete .count-info strong,
+.habit.complete .count-info,
+.habit.complete .count-status{color:var(--success)}
+.habit.complete .progress > span{background:linear-gradient(90deg,#22c55e,#16a34a)}
+.habit.complete .action-btn.primary{
+  background:linear-gradient(180deg,#16a34a,#15803d);
+  box-shadow:0 8px 20px rgba(22,163,74,0.35);
+}
+.habit.complete .action-btn.primary:disabled{opacity:0.9}
+
+@media (max-width:600px){
+  .controls-counter{flex-direction:column;align-items:stretch}
+  .controls-counter .action-btn{width:100%}
+  .controls-counter .count-info{justify-content:space-between}
+  .controls-binary{gap:12px}
 }
 .progress{ 
   height:8px;background:#0b1325;border:1px solid #1e293b;border-radius:999px;overflow:hidden;
