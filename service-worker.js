@@ -1,4 +1,4 @@
-const CACHE = "habit-spark-v1";
+const CACHE = "habit-spark-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -39,7 +39,7 @@ self.addEventListener("fetch", (e) => {
       }
       return fresh;
     } catch (err) {
-      return cached || new Response("Offline", {{ status: 200, headers: {{ "Content-Type": "text/plain" }} }});
+      return cached || new Response("Offline", { status: 200, headers: { "Content-Type": "text/plain" } });
     }
   })());
 });
