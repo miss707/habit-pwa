@@ -1,5 +1,6 @@
 /* Tiny offline Habit PWA - localStorage only */
 const STORAGE_KEY = "habitDataV1";
+const REMINDER_STORAGE_KEY = "habitRemindersV1";
 
 const PRESET_HABITS = [
   {
@@ -362,11 +363,43 @@ const $ = (sel, el=document) => el.querySelector(sel);
 const $$ = (sel, el=document) => [...el.querySelectorAll(sel)];
 
 function load() {
+  let state;
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { habits: [] };
+    state = JSON.parse(localStorage.getItem(STORAGE_KEY)) || { habits: [] };
   } catch (e) {
-    return { habits: [] };
+    state = { habits: [] };
   }
+
+  if (!state || typeof state !== "object") state = { habits: [] };
+  if (!Array.isArray(state.habits)) state.habits = [];
+
+  let mutated = false;
+  state.habits.forEach((habit) => {
+    if (!habit || typeof habit !== "object") return;
+    if (!habit.createdAt) {
+      habit.createdAt = new Date().toISOString();
+      mutated = true;
+    }
+    if (!habit.startDate) {
+      const createdDate = habit.createdAt ? habit.createdAt.slice(0, 10) : todayISO();
+      habit.startDate = createdDate;
+      mutated = true;
+    }
+    if (habit.reminderTime === undefined) {
+      habit.reminderTime = "";
+      mutated = true;
+    }
+  });
+
+  if (mutated) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    } catch (e) {
+      /* ignore persistence errors */
+    }
+  }
+
+  return state;
 }
 
 function save(state) {
@@ -376,21 +409,55 @@ function save(state) {
 function uid() { return Math.random().toString(36).slice(2, 10); }
 function todayISO() { return new Date().toISOString().slice(0,10); }
 
+const MS_IN_DAY = 24 * 60 * 60 * 1000;
+
+function toDateOnly(iso) {
+  if (!iso || typeof iso !== "string") return null;
+  const [y, m, d] = iso.split("-").map((part) => parseInt(part, 10));
+  if ([y, m, d].some((part) => Number.isNaN(part))) return null;
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+function differenceInDays(fromISO, toISO) {
+  const from = toDateOnly(fromISO);
+  const to = toDateOnly(toISO);
+  if (!from || !to) return 0;
+  return Math.round((to.getTime() - from.getTime()) / MS_IN_DAY);
+}
+
+function getHabitStartDate(habit) {
+  if (!habit || typeof habit !== "object") return null;
+  if (habit.startDate) return habit.startDate;
+  if (habit.createdAt) return habit.createdAt.slice(0, 10);
+  return null;
+}
+
+function isBeforeStart(habit, dateISO=todayISO()) {
+  const start = getHabitStartDate(habit);
+  if (!start) return false;
+  return dateISO < start;
+}
+
 function getCountFor(habit, dateISO=todayISO()) {
+  if (isBeforeStart(habit, dateISO)) return 0;
   return (habit.history && habit.history[dateISO]) || 0;
 }
 
 function setCountFor(habit, val, dateISO=todayISO()) {
+  if (isBeforeStart(habit, dateISO)) return false;
   habit.history = habit.history || {};
   habit.history[dateISO] = Math.max(0, val);
+  return true;
 }
 
 function computeStreak(habit, dateISO=todayISO()) {
   const target = habit.target || 1;
   let streak = 0;
   let d = new Date(dateISO);
+  const start = getHabitStartDate(habit);
   for (let i=0; i<9999; i++) {
     const key = d.toISOString().slice(0,10);
+    if (start && key < start) break;
     if ((habit.history?.[key] || 0) >= target) {
       streak++;
       d.setDate(d.getDate()-1);
@@ -405,7 +472,11 @@ function totalCompletions(habit) {
 
 function daysMeetingTarget(habit) {
   const target = habit.target || 1;
-  return Object.values(habit.history || {}).filter(val => (val || 0) >= target).length;
+  const start = getHabitStartDate(habit);
+  return Object.entries(habit.history || {})
+    .filter(([date]) => !start || date >= start)
+    .filter(([, val]) => (val || 0) >= target)
+    .length;
 }
 
 function evaluateRewards(habit) {
@@ -427,6 +498,73 @@ function evaluateRewards(habit) {
   });
 
   return newlyUnlocked;
+}
+
+function computeNextReminderDate(reminderTime) {
+  if (!reminderTime || typeof reminderTime !== "string") return null;
+  const [hourStr, minuteStr] = reminderTime.split(":");
+  const hour = parseInt(hourStr, 10);
+  const minute = parseInt(minuteStr, 10);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  const now = new Date();
+  const next = new Date(now);
+  next.setSeconds(0, 0);
+  next.setHours(hour, minute, 0, 0);
+  if (next.getTime() <= now.getTime()) {
+    next.setDate(next.getDate() + 1);
+  }
+  return next;
+}
+
+function loadReminderQueue() {
+  try {
+    return JSON.parse(localStorage.getItem(REMINDER_STORAGE_KEY)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function saveReminderQueue(queue) {
+  try {
+    localStorage.setItem(REMINDER_STORAGE_KEY, JSON.stringify(queue));
+  } catch (e) {
+    /* ignore persistence errors */
+  }
+}
+
+function queueReminderForHabit(habit) {
+  if (!habit || !habit.reminderTime) return;
+  const nextReminder = computeNextReminderDate(habit.reminderTime);
+  if (!nextReminder) return;
+
+  const queue = loadReminderQueue();
+  const scheduledISO = nextReminder.toISOString();
+  const existing = queue[habit.id];
+  if (existing && existing.scheduledFor === scheduledISO && existing.reminderTime === habit.reminderTime) {
+    return;
+  }
+
+  queue[habit.id] = {
+    reminderTime: habit.reminderTime,
+    scheduledFor: scheduledISO,
+    habitName: habit.name,
+  };
+  saveReminderQueue(queue);
+
+  if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+    navigator.serviceWorker.ready
+      .then((registration) => {
+        if (!registration.active) return;
+        registration.active.postMessage({
+          type: "schedule-reminder",
+          habitId: habit.id,
+          habitName: habit.name,
+          reminderTime: habit.reminderTime,
+          scheduledFor: scheduledISO,
+        });
+      })
+      .catch(() => {});
+  }
 }
 
 function toast(msg) {
@@ -457,6 +595,10 @@ function render() {
   }
 
   state.habits.forEach((h) => {
+    const startDate = getHabitStartDate(h);
+    const today = todayISO();
+    const hasStarted = !startDate || today >= startDate;
+    const daysUntilStart = startDate ? differenceInDays(today, startDate) : 0;
     const count = getCountFor(h);
     const target = h.target || 1;
     const progressPct = target ? Math.min(100, Math.round((count / target) * 100)) : 0;
@@ -488,6 +630,14 @@ function render() {
       card.appendChild(description);
     }
 
+    if (!hasStarted && startDate) {
+      const countdown = document.createElement("p");
+      countdown.className = "start-countdown";
+      const label = daysUntilStart === 1 ? "Starts tomorrow" : `Starts in ${daysUntilStart} days`;
+      countdown.innerHTML = `${label} <span class="badge">${startDate}</span>`;
+      card.appendChild(countdown);
+    }
+
     const controls = document.createElement("div");
     controls.className = "controls";
     const dec = document.createElement("button");
@@ -503,6 +653,10 @@ function render() {
     inc.className = "icon-btn";
     inc.setAttribute("aria-label", "increase");
     inc.textContent = "+";
+
+    inc.disabled = !hasStarted;
+    dec.disabled = !hasStarted;
+    controls.classList.toggle("disabled", !hasStarted);
 
     controls.append(dec, countEl, inc);
     card.appendChild(controls);
@@ -521,7 +675,14 @@ function render() {
     const streak = computeStreak(h);
     const streakEl = document.createElement("span");
     streakEl.innerHTML = `🔥 <strong>${streak}</strong> day streak`;
-    meta.append(targetEl, streakEl);
+    meta.appendChild(targetEl);
+    if (startDate) {
+      const startEl = document.createElement("span");
+      const startLabel = hasStarted ? "Started" : "Starts";
+      startEl.innerHTML = `📅 ${startLabel} <strong>${startDate}</strong>`;
+      meta.appendChild(startEl);
+    }
+    meta.appendChild(streakEl);
     const onTrackDays = daysMeetingTarget(h);
     if (onTrackDays) {
       const onTrackEl = document.createElement("span");
@@ -529,6 +690,10 @@ function render() {
       meta.appendChild(onTrackEl);
     }
     card.appendChild(meta);
+
+    if (hasStarted && h.reminderTime) {
+      queueReminderForHabit(h);
+    }
 
     if (h.motivation) {
       const motivationEl = document.createElement("p");
@@ -641,6 +806,7 @@ function render() {
     const reset = document.createElement("button");
     reset.className = "link";
     reset.textContent = "Reset today";
+    reset.disabled = !hasStarted;
     const del = document.createElement("button");
     del.className = "link";
     del.style.color = "var(--danger)";
@@ -649,10 +815,12 @@ function render() {
     card.appendChild(actions);
 
     inc.addEventListener("click", () => {
+      if (inc.disabled) return;
       const s = load();
       const hh = s.habits.find((x) => x.id === h.id);
+      if (!hh) return;
       const c = getCountFor(hh) + 1;
-      setCountFor(hh, c);
+      if (!setCountFor(hh, c)) return;
       const newRewards = evaluateRewards(hh);
       save(s);
       const messages = [];
@@ -664,18 +832,22 @@ function render() {
     });
 
     dec.addEventListener("click", () => {
+      if (dec.disabled) return;
       const s = load();
       const hh = s.habits.find((x) => x.id === h.id);
+      if (!hh) return;
       const c = Math.max(0, getCountFor(hh) - 1);
-      setCountFor(hh, c);
+      if (!setCountFor(hh, c)) return;
       save(s);
       render();
     });
 
     reset.addEventListener("click", () => {
+      if (reset.disabled) return;
       const s = load();
       const hh = s.habits.find((x) => x.id === h.id);
-      setCountFor(hh, 0);
+      if (!hh) return;
+      if (!setCountFor(hh, 0)) return;
       save(s);
       render();
     });
@@ -705,6 +877,8 @@ function createHabitFromPreset(preset) {
     name: preset.name,
     target: preset.defaultTarget || 1,
     createdAt: new Date().toISOString(),
+    startDate: preset.startDate || todayISO(),
+    reminderTime: preset.reminderTime || "",
     history: {},
     presetId: preset.id,
     category: preset.category,
@@ -728,6 +902,8 @@ const addForm = $("#add-form");
 const presetSelect = $("#preset");
 const nameInput = $("#name");
 const targetInput = $("#target");
+const startDateInput = $("#start-date");
+const reminderTimeInput = $("#reminder-time");
 const motivationInput = $("#motivation");
 const expectedInput = $("#expected");
 const tipsInput = $("#tips");
@@ -735,6 +911,14 @@ const goalFields = $("#goal-fields");
 const presetPreview = $("#preset-preview");
 const presetCategory = $("#preset-category");
 const presetDescription = $("#preset-description");
+
+function ensureStartDateDefault() {
+  if (startDateInput && !startDateInput.value) {
+    startDateInput.value = todayISO();
+  }
+}
+
+ensureStartDateDefault();
 
 function renderGoalInputs(preset) {
   if (!goalFields) return;
@@ -797,12 +981,16 @@ function applyPresetToForm(preset) {
   if (preset) {
     if (nameInput) nameInput.value = preset.name;
     if (targetInput) targetInput.value = String(preset.defaultTarget || 1);
+    if (startDateInput) startDateInput.value = preset.startDate || todayISO();
+    if (reminderTimeInput) reminderTimeInput.value = preset.reminderTime || "";
     if (motivationInput) motivationInput.value = preset.motivation || "";
     if (expectedInput) expectedInput.value = (preset.expectedBenefits || []).join("\n");
     if (tipsInput) tipsInput.value = (preset.tips || []).join("\n");
   } else {
     if (nameInput) nameInput.value = "";
     if (targetInput) targetInput.value = "1";
+    if (startDateInput) startDateInput.value = todayISO();
+    if (reminderTimeInput) reminderTimeInput.value = "";
     if (motivationInput) motivationInput.value = "";
     if (expectedInput) expectedInput.value = "";
     if (tipsInput) tipsInput.value = "";
@@ -861,6 +1049,8 @@ if (addForm) {
     e.preventDefault();
     const name = nameInput ? nameInput.value.trim() : "";
     const target = Math.max(1, parseInt(targetInput?.value || "1", 10) || 1);
+    const startDate = startDateInput && startDateInput.value ? startDateInput.value : todayISO();
+    const reminderTime = reminderTimeInput ? reminderTimeInput.value : "";
     if (!name) return;
 
     const preset = presetSelect ? PRESET_HABITS.find((p) => p.id === presetSelect.value) : null;
@@ -886,6 +1076,8 @@ if (addForm) {
       name,
       target,
       createdAt: new Date().toISOString(),
+      startDate,
+      reminderTime,
       history: {},
       motivation,
       expectedBenefits,
