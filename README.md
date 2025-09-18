@@ -2,9 +2,12 @@
 
 A tiny, offline-first habit counter with streaks. Works on your phone and can be installed like an app.
 
-## What it does (v1)
+## What it does
 - Add habits with a daily target (e.g., 8 glasses of water).
-- Tap + / − to track your count for **today**.
+- Choose a cadence (every day, specific weekdays, or a one-time event) and see it laid out on each habit’s timeline.
+- Tap + / − to track your count for **today** and keep the timeline in sync.
+- Missed scheduled days trigger an optional notification prompt (✅/❌) if you’ve allowed notifications.
+- Export the cadence as an `.ics` calendar file so you can subscribe in your calendar app.
 - Shows a 🔥 day streak when you meet the target across consecutive days.
 - Fully offline (data stored locally on your device via localStorage).
 - Installable PWA (Add to Home Screen).
@@ -28,6 +31,12 @@ A tiny, offline-first habit counter with streaks. Works on your phone and can be
 ## Customize
 - Edit `index.html` labels and colors in `app.css`.
 - In `app.js`, adjust the simple data model or add features like weekly targets or reminders.
+
+## Timeline & prompts
+- Each habit now renders a mini calendar that highlights completed, pending (today), upcoming and missed check-ins.
+- Missed days within the last week will ping the service worker, which raises a “Did you complete…?” notification. Tapping ✅ logs the day at your target; ❌ dismisses the prompt for that day.
+- “Add to calendar” downloads an `.ics` file with your habit cadence (daily RRULE, weekly BYDAY, or one-off). Subscribe to stay synced across devices.
+- One-off events disappear from the timeline once their day passes—log them or mark them from the notification to keep your history tidy.
 
 ## Roadmap ideas (optional)
 - Cloud sync (Supabase or Firebase auth + database).
