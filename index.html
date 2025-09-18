@@ -41,6 +41,14 @@
             <label for="target">Daily target</label>
             <input id="target" name="target" type="number" min="1" value="1" required />
           </div>
+          <div class="row column">
+            <label for="start-date">Start day &amp; reminder</label>
+            <div class="dual-inputs">
+              <input id="start-date" name="startDate" type="date" />
+              <input id="reminder-time" name="reminderTime" type="time" />
+            </div>
+            <small class="muted">Choose when you want to begin and an optional daily reminder time.</small>
+          </div>
           <div id="goal-fields" class="goal-fields"></div>
           <div class="row column">
             <label for="motivation">Motivation</label>
