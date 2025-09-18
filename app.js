@@ -488,24 +488,68 @@ function render() {
       card.appendChild(description);
     }
 
+    const isBinary = target === 1;
+    const isComplete = count >= target && target > 0;
+    const remaining = Math.max(target - count, 0);
+
     const controls = document.createElement("div");
     controls.className = "controls";
-    const dec = document.createElement("button");
-    dec.className = "icon-btn";
-    dec.setAttribute("aria-label", "decrease");
-    dec.textContent = "−";
+    let logBtn = null;
+    let undoBtn = null;
+    let completeBtn = null;
+    let clearBtn = null;
 
-    const countEl = document.createElement("div");
-    countEl.className = "count";
-    countEl.textContent = count;
+    if (isBinary) {
+      controls.classList.add("controls-binary");
 
-    const inc = document.createElement("button");
-    inc.className = "icon-btn";
-    inc.setAttribute("aria-label", "increase");
-    inc.textContent = "+";
+      const status = document.createElement("div");
+      status.className = "count-status";
+      status.textContent = isComplete ? "Done for today" : "Waiting to log";
 
-    controls.append(dec, countEl, inc);
+      completeBtn = document.createElement("button");
+      completeBtn.className = "action-btn icon primary";
+      completeBtn.type = "button";
+      completeBtn.setAttribute("aria-label", `Mark “${h.name}” complete for today`);
+      completeBtn.textContent = "✅";
+      completeBtn.disabled = isComplete;
+
+      clearBtn = document.createElement("button");
+      clearBtn.className = "action-btn icon secondary";
+      clearBtn.type = "button";
+      clearBtn.setAttribute("aria-label", `Clear progress for “${h.name}” today`);
+      clearBtn.textContent = "❌";
+      clearBtn.disabled = count === 0;
+
+      controls.append(completeBtn, status, clearBtn);
+    } else {
+      controls.classList.add("controls-counter");
+
+      logBtn = document.createElement("button");
+      logBtn.className = "action-btn primary";
+      logBtn.type = "button";
+      logBtn.setAttribute("aria-label", `Log progress for “${h.name}” today`);
+      logBtn.textContent = "Log today";
+      logBtn.disabled = isComplete;
+
+      const countInfo = document.createElement("div");
+      countInfo.className = "count-info";
+      countInfo.innerHTML = `<strong>${count}</strong> of ${target} (${remaining} remaining)`;
+
+      undoBtn = document.createElement("button");
+      undoBtn.className = "action-btn secondary";
+      undoBtn.type = "button";
+      undoBtn.setAttribute("aria-label", `Undo progress for “${h.name}” today`);
+      undoBtn.textContent = "Undo";
+      undoBtn.disabled = count === 0;
+
+      controls.append(logBtn, countInfo, undoBtn);
+    }
+
     card.appendChild(controls);
+
+    if (isComplete) {
+      card.classList.add("complete");
+    }
 
     const prog = document.createElement("div");
     prog.className = "progress";
@@ -648,29 +692,60 @@ function render() {
     actions.append(reset, del);
     card.appendChild(actions);
 
-    inc.addEventListener("click", () => {
-      const s = load();
-      const hh = s.habits.find((x) => x.id === h.id);
-      const c = getCountFor(hh) + 1;
-      setCountFor(hh, c);
-      const newRewards = evaluateRewards(hh);
-      save(s);
-      const messages = [];
-      const targetVal = hh.target || 1;
-      if (c === targetVal) messages.push(`Nice! You hit your “${hh.name}” target 🎉`);
-      if (newRewards.length) messages.push(`Unlocked: ${newRewards.join(", ")}`);
-      if (messages.length) toast(messages.join(" • "));
-      render();
-    });
+    if (logBtn) {
+      logBtn.addEventListener("click", () => {
+        const s = load();
+        const hh = s.habits.find((x) => x.id === h.id);
+        const c = getCountFor(hh) + 1;
+        setCountFor(hh, c);
+        const newRewards = evaluateRewards(hh);
+        save(s);
+        const messages = [];
+        const targetVal = hh.target || 1;
+        if (c === targetVal) messages.push(`Nice! You hit your “${hh.name}” target 🎉`);
+        if (newRewards.length) messages.push(`Unlocked: ${newRewards.join(", ")}`);
+        if (messages.length) toast(messages.join(" • "));
+        render();
+      });
+    }
 
-    dec.addEventListener("click", () => {
-      const s = load();
-      const hh = s.habits.find((x) => x.id === h.id);
-      const c = Math.max(0, getCountFor(hh) - 1);
-      setCountFor(hh, c);
-      save(s);
-      render();
-    });
+    if (undoBtn) {
+      undoBtn.addEventListener("click", () => {
+        const s = load();
+        const hh = s.habits.find((x) => x.id === h.id);
+        const c = Math.max(0, getCountFor(hh) - 1);
+        setCountFor(hh, c);
+        save(s);
+        render();
+      });
+    }
+
+    if (completeBtn) {
+      completeBtn.addEventListener("click", () => {
+        const s = load();
+        const hh = s.habits.find((x) => x.id === h.id);
+        const targetVal = hh.target || 1;
+        setCountFor(hh, targetVal);
+        const newRewards = evaluateRewards(hh);
+        save(s);
+        const messages = [];
+        const c = getCountFor(hh);
+        if (c === targetVal) messages.push(`Nice! You hit your “${hh.name}” target 🎉`);
+        if (newRewards.length) messages.push(`Unlocked: ${newRewards.join(", ")}`);
+        if (messages.length) toast(messages.join(" • "));
+        render();
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.addEventListener("click", () => {
+        const s = load();
+        const hh = s.habits.find((x) => x.id === h.id);
+        setCountFor(hh, 0);
+        save(s);
+        render();
+      });
+    }
 
     reset.addEventListener("click", () => {
       const s = load();
