@@ -41,12 +41,42 @@
             <label for="target">Daily target</label>
             <input id="target" name="target" type="number" min="1" value="1" required />
           </div>
+          <div class="row">
+            <label for="start-date">Start date</label>
+            <input id="start-date" name="start-date" type="date" required />
+          </div>
+          <div class="row">
+            <label for="schedule-frequency">Schedule</label>
+            <select id="schedule-frequency" name="schedule-frequency">
+              <option value="daily">Every day</option>
+              <option value="weekly">Specific weekdays</option>
+              <option value="once">One-time check-in</option>
+            </select>
+          </div>
+          <div id="weekly-picker" class="row column hidden">
+            <span class="field-label">Weekdays</span>
+            <div class="weekday-picker" role="group" aria-label="Choose weekdays for this habit">
+              <label class="weekday-toggle"><input type="checkbox" value="MO" /><span>Mon</span></label>
+              <label class="weekday-toggle"><input type="checkbox" value="TU" /><span>Tue</span></label>
+              <label class="weekday-toggle"><input type="checkbox" value="WE" /><span>Wed</span></label>
+              <label class="weekday-toggle"><input type="checkbox" value="TH" /><span>Thu</span></label>
+              <label class="weekday-toggle"><input type="checkbox" value="FR" /><span>Fri</span></label>
+              <label class="weekday-toggle"><input type="checkbox" value="SA" /><span>Sat</span></label>
+              <label class="weekday-toggle"><input type="checkbox" value="SU" /><span>Sun</span></label>
+            </div>
+            <small class="muted">Pick the days you want to see on your timeline.</small>
+          </div>
+          <div id="event-date-row" class="row hidden">
+            <label for="event-date">Event date</label>
+            <input id="event-date" name="event-date" type="date" />
+          </div>
           <div id="goal-fields" class="goal-fields"></div>
           <div class="row column">
             <label for="motivation">Motivation</label>
             <textarea id="motivation" name="motivation" placeholder="Write a short pep talk you'll see on the habit card"></textarea>
             <small class="muted">This message appears on your habit card.</small>
           </div>
+          <p class="muted schedule-note">You'll get a mini calendar for each habit. If a scheduled check-in passes without a log, we'll nudge you (if notifications are allowed) and you can add the cadence to your calendar app.</p>
           <div class="row column">
             <label for="expected">What to expect</label>
             <textarea id="expected" name="expected" placeholder="List the benefits you’re working toward. One per line."></textarea>

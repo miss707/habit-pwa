@@ -1,5 +1,22 @@
 /* Tiny offline Habit PWA - localStorage only */
 const STORAGE_KEY = "habitDataV1";
+const WEEKDAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"];
+const WEEKDAY_NAMES = {
+  SU: "Sunday",
+  MO: "Monday",
+  TU: "Tuesday",
+  WE: "Wednesday",
+  TH: "Thursday",
+  FR: "Friday",
+  SA: "Saturday",
+};
+const ICS_PRODID = "-//Habit Spark//Schedule Export//EN";
+
+let swReadyPromise = Promise.resolve(null);
+if ("serviceWorker" in navigator) {
+  swReadyPromise = navigator.serviceWorker.ready.catch(() => null);
+  navigator.serviceWorker.addEventListener("message", handleServiceWorkerMessage);
+}
 
 const PRESET_HABITS = [
   {
@@ -361,6 +378,360 @@ const REWARD_DEFS = [
 const $ = (sel, el=document) => el.querySelector(sel);
 const $$ = (sel, el=document) => [...el.querySelectorAll(sel)];
 
+function handleServiceWorkerMessage(event) {
+  const data = event.data || {};
+  if (data.type !== "habit-response") return;
+  const { habitId, date, action } = data;
+  if (!habitId || !date) return;
+  const state = load();
+  const habit = state.habits.find((h) => h.id === habitId);
+  if (!habit) return;
+
+  normalizeSchedule(habit);
+
+  if (action === "complete") {
+    const target = habit.target || 1;
+    setCountFor(habit, target, date);
+    if (habit.schedule?.missedPrompts) {
+      habit.schedule.missedPrompts = habit.schedule.missedPrompts.filter((d) => d !== date);
+    }
+  }
+
+  save(state);
+  render();
+}
+
+function normalizeDateString(value) {
+  if (!value) return "";
+  const match = /^([0-9]{4}-[0-9]{2}-[0-9]{2})/.exec(String(value));
+  return match ? match[1] : "";
+}
+
+function isoToDate(iso) {
+  const clean = normalizeDateString(iso);
+  if (!clean) return null;
+  const [y, m, d] = clean.split("-").map((part) => parseInt(part, 10));
+  if (!y || !m || !d) return null;
+  const date = new Date(y, m - 1, d);
+  if (Number.isNaN(date.getTime())) return null;
+  return date;
+}
+
+function formatMonthDay(iso) {
+  const date = isoToDate(iso);
+  if (!date) return iso;
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatLongDate(iso) {
+  const date = isoToDate(iso);
+  if (!date) return iso || "today";
+  return date.toLocaleDateString(undefined, { month: "long", day: "numeric", year: "numeric" });
+}
+
+function formatWeekdayShort(iso) {
+  const code = isoWeekdayCode(iso);
+  if (!code) return "";
+  return (WEEKDAY_NAMES[code] || code).slice(0, 3);
+}
+
+function isoWeekdayCode(iso) {
+  const date = isoToDate(iso);
+  if (!date) return WEEKDAY_CODES[1];
+  return WEEKDAY_CODES[date.getDay()];
+}
+
+function normalizeWeekdayCode(code) {
+  if (!code) return null;
+  const upper = String(code).slice(0, 2).toUpperCase();
+  return WEEKDAY_CODES.includes(upper) ? upper : null;
+}
+
+function defaultSchedule(start=todayISO()) {
+  const startDate = normalizeDateString(start) || todayISO();
+  return {
+    frequency: "daily",
+    startDate,
+    eventDate: "",
+    weekdays: [],
+    missedPrompts: [],
+  };
+}
+
+function normalizeSchedule(habit) {
+  const prev = habit.schedule && typeof habit.schedule === "object" ? habit.schedule : {};
+  const existing = { ...prev };
+  const fallback = normalizeDateString(habit.createdAt) || todayISO();
+  let frequency = existing.frequency || (existing.eventDate ? "once" : "daily");
+  if (!["daily", "weekly", "once"].includes(frequency)) frequency = "daily";
+  let startDate = normalizeDateString(existing.startDate) || fallback;
+  let eventDate = normalizeDateString(existing.eventDate);
+  let weekdays = Array.isArray(existing.weekdays)
+    ? existing.weekdays.map(normalizeWeekdayCode).filter(Boolean)
+    : [];
+  let missedPrompts = Array.isArray(existing.missedPrompts)
+    ? existing.missedPrompts.map(normalizeDateString).filter(Boolean)
+    : [];
+
+  if (frequency === "once") {
+    if (!eventDate) eventDate = startDate || fallback;
+    if (!startDate) startDate = eventDate || fallback;
+  } else {
+    if (!startDate) startDate = fallback;
+    eventDate = "";
+    if (frequency === "weekly" && !weekdays.length) {
+      weekdays = [isoWeekdayCode(startDate)];
+    }
+    if (frequency !== "weekly") weekdays = [];
+  }
+
+  const keepSet = new Set();
+  const today = todayISO();
+  const cutoffDate = isoToDate(today);
+  if (cutoffDate) {
+    const oldest = new Date(cutoffDate);
+    oldest.setDate(oldest.getDate() - 30);
+    const oldestISO = oldest.toISOString().slice(0, 10);
+    missedPrompts.forEach((date) => {
+      if (date && date >= oldestISO) keepSet.add(date);
+    });
+  }
+  missedPrompts = [...keepSet];
+
+  const changed =
+    prev.frequency !== frequency ||
+    prev.startDate !== startDate ||
+    prev.eventDate !== eventDate ||
+    JSON.stringify(prev.weekdays || []) !== JSON.stringify(weekdays) ||
+    JSON.stringify(prev.missedPrompts || []) !== JSON.stringify(missedPrompts);
+
+  habit.schedule = { ...existing, frequency, startDate, eventDate, weekdays, missedPrompts };
+  return changed;
+}
+
+function describeSchedule(schedule) {
+  if (!schedule) return "Daily";
+  if (schedule.frequency === "once") {
+    const date = schedule.eventDate || schedule.startDate;
+    return `One-time check-in on ${formatLongDate(date)}`;
+  }
+  if (schedule.frequency === "weekly") {
+    const days = (schedule.weekdays || []).map((code) => (WEEKDAY_NAMES[code] || code).slice(0, 3));
+    const dayLabel = days.length ? days.join(", ") : "every day";
+    return `Weekly on ${dayLabel} starting ${formatLongDate(schedule.startDate)}`;
+  }
+  return `Every day starting ${formatLongDate(schedule.startDate)}`;
+}
+
+function isDateScheduled(schedule, iso) {
+  const clean = normalizeDateString(iso);
+  if (!schedule || !clean) return false;
+  if (schedule.frequency === "once") {
+    const eventDate = normalizeDateString(schedule.eventDate) || normalizeDateString(schedule.startDate);
+    return clean === eventDate;
+  }
+  const start = normalizeDateString(schedule.startDate);
+  if (!start || clean < start) return false;
+  if (schedule.frequency === "daily") return true;
+  if (schedule.frequency === "weekly") {
+    const days = (schedule.weekdays || []).length ? schedule.weekdays : WEEKDAY_CODES;
+    return days.includes(isoWeekdayCode(clean));
+  }
+  return false;
+}
+
+function buildTimeline(habit) {
+  const schedule = habit.schedule || defaultSchedule();
+  const startISO = schedule.frequency === "once"
+    ? normalizeDateString(schedule.eventDate) || normalizeDateString(schedule.startDate)
+    : normalizeDateString(schedule.startDate);
+  const startDate = isoToDate(startISO);
+  if (!startDate) return { schedule, items: [] };
+  const todayStr = todayISO();
+  const todayDate = isoToDate(todayStr) || new Date();
+  const end = new Date(todayDate);
+  end.setDate(end.getDate() + 14);
+
+  const items = [];
+  const maxItems = 30;
+  const pointer = new Date(startDate);
+  let iterations = 0;
+  const maxIterations = 730;
+
+  while (pointer <= end && iterations < maxIterations) {
+    iterations++;
+    const iso = pointer.toISOString().slice(0, 10);
+    if (isDateScheduled(schedule, iso)) {
+      const count = getCountFor(habit, iso);
+      const target = habit.target || 1;
+      let status = "upcoming";
+      if (count >= target) status = "complete";
+      else if (iso < todayStr) status = "missed";
+      else if (iso === todayStr) status = "pending";
+
+      items.push({
+        date: iso,
+        weekday: formatWeekdayShort(iso),
+        label: formatMonthDay(iso),
+        status,
+        isToday: iso === todayStr,
+      });
+
+      if (schedule.frequency === "once") break;
+    }
+    pointer.setDate(pointer.getDate() + 1);
+    if (schedule.frequency === "once" && pointer > startDate) break;
+  }
+
+  if (items.length > maxItems) {
+    return { schedule, items: items.slice(-maxItems) };
+  }
+  return { schedule, items };
+}
+
+function collectMissedScheduledDates(habit) {
+  const schedule = habit.schedule;
+  if (!schedule) return { dates: [], changed: false };
+  const todayStr = todayISO();
+  const todayDate = isoToDate(todayStr);
+  if (!todayDate) return { dates: [], changed: false };
+  const startISO = schedule.frequency === "once"
+    ? normalizeDateString(schedule.eventDate) || normalizeDateString(schedule.startDate)
+    : normalizeDateString(schedule.startDate);
+  const startDate = isoToDate(startISO);
+  if (!startDate) return { dates: [], changed: false };
+
+  const lookback = new Date(todayDate);
+  lookback.setDate(lookback.getDate() - 7);
+  const pointer = startDate > lookback ? new Date(startDate) : new Date(lookback);
+
+  const toNotify = [];
+  let changed = false;
+  const seen = new Set(schedule.missedPrompts || []);
+  const target = habit.target || 1;
+  let iterations = 0;
+
+  while (pointer < todayDate && iterations < 60) {
+    iterations++;
+    const iso = pointer.toISOString().slice(0, 10);
+    if (isDateScheduled(schedule, iso)) {
+      const already = getCountFor(habit, iso);
+      if (already < target && !seen.has(iso)) {
+        toNotify.push(iso);
+        seen.add(iso);
+        changed = true;
+      }
+    }
+    pointer.setDate(pointer.getDate() + 1);
+    if (schedule.frequency === "once" && pointer > startDate) break;
+  }
+
+  const filtered = [...seen].filter((iso) => iso <= todayStr);
+  if (filtered.length !== (schedule.missedPrompts || []).length) changed = true;
+  schedule.missedPrompts = filtered;
+
+  return { dates: toNotify, changed };
+}
+
+function notifyMissed(habit, dateISO) {
+  if (typeof Notification === "undefined") return;
+  if (Notification.permission === "denied") return;
+
+  const send = () => {
+    swReadyPromise.then((reg) => {
+      const message = {
+        type: "habit-missed",
+        habitId: habit.id,
+        name: habit.name,
+        date: dateISO,
+        target: habit.target || 1,
+      };
+      if (navigator.serviceWorker.controller) {
+        navigator.serviceWorker.controller.postMessage(message);
+      } else if (reg?.active) {
+        reg.active.postMessage(message);
+      }
+    }).catch(() => {});
+  };
+
+  if (Notification.permission === "granted") {
+    send();
+  } else if (Notification.permission === "default") {
+    Notification.requestPermission().then((perm) => {
+      if (perm === "granted") send();
+    });
+  }
+}
+
+function escapeICS(value="") {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\n/g, "\\n")
+    .replace(/,/g, "\\,")
+    .replace(/;/g, "\\;");
+}
+
+function createICSContent(habit) {
+  const schedule = habit.schedule || defaultSchedule();
+  const now = new Date().toISOString().replace(/[-:]/g, "").split(".")[0] + "Z";
+  const startISO = schedule.frequency === "once"
+    ? normalizeDateString(schedule.eventDate) || normalizeDateString(schedule.startDate)
+    : normalizeDateString(schedule.startDate) || todayISO();
+  const dtStart = (startISO || todayISO()).replace(/-/g, "");
+  let rrule = "";
+  if (schedule.frequency === "daily") {
+    rrule = "RRULE:FREQ=DAILY";
+  } else if (schedule.frequency === "weekly") {
+    const days = (schedule.weekdays || []).length ? schedule.weekdays : WEEKDAY_CODES;
+    rrule = `RRULE:FREQ=WEEKLY;BYDAY=${days.join(",")}`;
+  }
+  const summary = escapeICS(habit.name || "Habit");
+  const descriptionParts = [];
+  if (habit.motivation) descriptionParts.push(habit.motivation);
+  if (habit.tips?.length) descriptionParts.push(`Tips: ${(Array.isArray(habit.tips) ? habit.tips.join("; ") : habit.tips)}`);
+  const description = escapeICS(descriptionParts.join("\n\n"));
+
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    `PRODID:${ICS_PRODID}`,
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    `UID:${habit.id}@habit-spark.local`,
+    `DTSTAMP:${now}`,
+    `SUMMARY:${summary}`,
+    `DTSTART;VALUE=DATE:${dtStart}`,
+  ];
+  if (rrule) lines.push(rrule);
+  if (schedule.frequency === "once") {
+    const end = normalizeDateString(schedule.eventDate) || startISO;
+    if (end) {
+      const endDate = isoToDate(end);
+      if (endDate) {
+        endDate.setDate(endDate.getDate() + 1);
+        lines.push(`DTEND;VALUE=DATE:${endDate.toISOString().slice(0, 10).replace(/-/g, "")}`);
+      }
+    }
+  }
+  if (description) lines.push(`DESCRIPTION:${description}`);
+  lines.push("END:VEVENT", "END:VCALENDAR");
+  return lines.join("\r\n");
+}
+
+function exportHabitICS(habit) {
+  const ics = createICSContent(habit);
+  const blob = new Blob([ics], { type: "text/calendar" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const safeName = (habit.name || "habit").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+  link.href = url;
+  link.download = `${safeName || "habit"}.ics`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
 function load() {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY)) || { habits: [] };
@@ -442,11 +813,17 @@ function render() {
   wrap.innerHTML = "";
 
   let mutated = false;
+  const notificationsToSend = [];
   state.habits.forEach((habit) => {
+    if (normalizeSchedule(habit)) mutated = true;
+    const missed = collectMissedScheduledDates(habit);
+    if (missed.changed) mutated = true;
+    missed.dates.forEach((date) => notificationsToSend.push({ habit, date }));
     const newly = evaluateRewards(habit);
     if (newly.length) mutated = true;
   });
   if (mutated) save(state);
+  notificationsToSend.forEach(({ habit, date }) => notifyMissed(habit, date));
 
   if (!state.habits.length) {
     const empty = document.createElement("div");
@@ -529,6 +906,49 @@ function render() {
       meta.appendChild(onTrackEl);
     }
     card.appendChild(meta);
+
+    const { schedule, items: timelineItems } = buildTimeline(h);
+    const scheduleBlock = document.createElement("div");
+    scheduleBlock.className = "schedule-block";
+    const scheduleTitle = document.createElement("strong");
+    scheduleTitle.textContent = "Timeline";
+    scheduleBlock.appendChild(scheduleTitle);
+    const scheduleDesc = document.createElement("p");
+    scheduleDesc.className = "schedule-description";
+    scheduleDesc.textContent = describeSchedule(schedule);
+    scheduleBlock.appendChild(scheduleDesc);
+
+    if (timelineItems.length) {
+      const list = document.createElement("ol");
+      list.className = "timeline";
+      timelineItems.forEach((item) => {
+        const li = document.createElement("li");
+        const classes = ["timeline-item", item.status];
+        if (item.isToday) classes.push("today");
+        li.className = classes.join(" ");
+        const dayEl = document.createElement("span");
+        dayEl.className = "timeline-day";
+        dayEl.textContent = item.weekday;
+        const dateEl = document.createElement("strong");
+        dateEl.textContent = item.label;
+        const statusEl = document.createElement("span");
+        statusEl.className = "timeline-status";
+        let statusLabel = "Upcoming";
+        if (item.status === "complete") statusLabel = "Done";
+        else if (item.status === "missed") statusLabel = "Missed";
+        else if (item.status === "pending") statusLabel = "Today";
+        statusEl.textContent = statusLabel;
+        li.append(dayEl, dateEl, statusEl);
+        list.appendChild(li);
+      });
+      scheduleBlock.appendChild(list);
+    } else {
+      const emptyTimeline = document.createElement("p");
+      emptyTimeline.className = "timeline-empty";
+      emptyTimeline.textContent = "No scheduled check-ins yet.";
+      scheduleBlock.appendChild(emptyTimeline);
+    }
+    card.appendChild(scheduleBlock);
 
     if (h.motivation) {
       const motivationEl = document.createElement("p");
@@ -638,6 +1058,9 @@ function render() {
 
     const actions = document.createElement("div");
     actions.className = "actions";
+    const calendarBtn = document.createElement("button");
+    calendarBtn.className = "link";
+    calendarBtn.textContent = "Add to calendar";
     const reset = document.createElement("button");
     reset.className = "link";
     reset.textContent = "Reset today";
@@ -645,8 +1068,16 @@ function render() {
     del.className = "link";
     del.style.color = "var(--danger)";
     del.textContent = "Delete habit";
-    actions.append(reset, del);
+    actions.append(calendarBtn, reset, del);
     card.appendChild(actions);
+
+    calendarBtn.addEventListener("click", () => {
+      const s = load();
+      const hh = s.habits.find((x) => x.id === h.id);
+      if (!hh) return;
+      normalizeSchedule(hh);
+      exportHabitICS(hh);
+    });
 
     inc.addEventListener("click", () => {
       const s = load();
@@ -706,6 +1137,7 @@ function createHabitFromPreset(preset) {
     target: preset.defaultTarget || 1,
     createdAt: new Date().toISOString(),
     history: {},
+    schedule: defaultSchedule(todayISO()),
     presetId: preset.id,
     category: preset.category,
     description: preset.description,
@@ -728,6 +1160,11 @@ const addForm = $("#add-form");
 const presetSelect = $("#preset");
 const nameInput = $("#name");
 const targetInput = $("#target");
+const startDateInput = $("#start-date");
+const frequencySelect = $("#schedule-frequency");
+const weeklyPicker = $("#weekly-picker");
+const eventDateRow = $("#event-date-row");
+const eventDateInput = $("#event-date");
 const motivationInput = $("#motivation");
 const expectedInput = $("#expected");
 const tipsInput = $("#tips");
@@ -735,6 +1172,32 @@ const goalFields = $("#goal-fields");
 const presetPreview = $("#preset-preview");
 const presetCategory = $("#preset-category");
 const presetDescription = $("#preset-description");
+
+function getWeekdayInputs() {
+  return weeklyPicker ? $$(".weekday-toggle input", weeklyPicker) : [];
+}
+
+function ensureWeeklySelection() {
+  const inputs = getWeekdayInputs();
+  if (!inputs.length) return [];
+  const checked = inputs.filter((input) => input.checked);
+  if (checked.length) return checked;
+  const fallbackDay = isoWeekdayCode(startDateInput?.value || todayISO());
+  const fallbackInput = inputs.find((input) => input.value === fallbackDay);
+  if (fallbackInput) fallbackInput.checked = true;
+  return fallbackInput ? [fallbackInput] : [];
+}
+
+function syncScheduleFields() {
+  const freq = frequencySelect ? frequencySelect.value : "daily";
+  if (weeklyPicker) weeklyPicker.classList.toggle("hidden", freq !== "weekly");
+  if (eventDateRow) eventDateRow.classList.toggle("hidden", freq !== "once");
+  if (eventDateInput) eventDateInput.required = freq === "once";
+  if (freq === "weekly") ensureWeeklySelection();
+  if (freq === "once" && eventDateInput && startDateInput && eventDateInput.value) {
+    startDateInput.value = eventDateInput.value;
+  }
+}
 
 function renderGoalInputs(preset) {
   if (!goalFields) return;
@@ -807,6 +1270,13 @@ function applyPresetToForm(preset) {
     if (expectedInput) expectedInput.value = "";
     if (tipsInput) tipsInput.value = "";
   }
+  if (startDateInput) startDateInput.value = todayISO();
+  if (eventDateInput) eventDateInput.value = "";
+  if (frequencySelect) frequencySelect.value = "daily";
+  getWeekdayInputs().forEach((input) => {
+    input.checked = false;
+  });
+  syncScheduleFields();
   renderGoalInputs(preset || null);
   updatePresetPreview(preset || null);
 }
@@ -856,6 +1326,34 @@ if (presetSelect) {
   presetSelect.addEventListener("change", handlePresetChange);
 }
 
+if (startDateInput && !startDateInput.value) {
+  startDateInput.value = todayISO();
+}
+syncScheduleFields();
+
+if (startDateInput) {
+  startDateInput.addEventListener("change", () => {
+    if (frequencySelect?.value === "weekly") ensureWeeklySelection();
+    if (frequencySelect?.value === "once" && eventDateInput && !eventDateInput.value) {
+      eventDateInput.value = startDateInput.value;
+    }
+  });
+}
+
+if (frequencySelect) {
+  frequencySelect.addEventListener("change", () => {
+    syncScheduleFields();
+  });
+}
+
+if (eventDateInput) {
+  eventDateInput.addEventListener("change", () => {
+    if (frequencySelect?.value === "once" && startDateInput && eventDateInput.value) {
+      startDateInput.value = eventDateInput.value;
+    }
+  });
+}
+
 if (addForm) {
   addForm.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -881,12 +1379,34 @@ if (addForm) {
           .filter(Boolean)
       : [];
 
+    const scheduleFrequency = frequencySelect ? frequencySelect.value : "daily";
+    const startDate = normalizeDateString(startDateInput?.value) || todayISO();
+    const selectedWeekdays = scheduleFrequency === "weekly"
+      ? getWeekdayInputs()
+          .filter((input) => input.checked)
+          .map((input) => input.value)
+      : [];
+    if (scheduleFrequency === "weekly" && !selectedWeekdays.length) {
+      selectedWeekdays.push(isoWeekdayCode(startDate));
+    }
+    const eventDateValue = scheduleFrequency === "once"
+      ? normalizeDateString(eventDateInput?.value) || startDate
+      : "";
+    const schedule = {
+      frequency: scheduleFrequency,
+      startDate: scheduleFrequency === "once" ? eventDateValue : startDate,
+      eventDate: scheduleFrequency === "once" ? eventDateValue : "",
+      weekdays: scheduleFrequency === "weekly" ? selectedWeekdays : [],
+      missedPrompts: [],
+    };
+
     const habit = {
       id: uid(),
       name,
       target,
       createdAt: new Date().toISOString(),
       history: {},
+      schedule,
       motivation,
       expectedBenefits,
       tips,

@@ -107,7 +107,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 
 .guidance[open]{padding-bottom:12px}
 .guidance h4{margin:8px 0 4px;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em}
 .guidance ul{margin:0 0 8px 18px;padding:0;color:var(--text);line-height:1.45}
-.actions{display:flex;gap:8px}
+.actions{display:flex;gap:8px;flex-wrap:wrap}
 .link{background:none;border:none;color:var(--accent);cursor:pointer;padding:0;font:inherit}
 .link:hover{text-decoration:underline}
 
@@ -132,4 +132,31 @@ input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 
 .preset-preview{display:flex;flex-direction:column;gap:6px;margin-bottom:12px;background:#0b1325;border:1px solid #1e293b;border-radius:12px;padding:12px}
 .goal-fields{display:flex;flex-direction:column;gap:10px;margin-bottom:10px}
 .goal-fields:empty{margin-bottom:0}
+.field-label{color:var(--muted);font-size:12px;letter-spacing:0.06em;text-transform:uppercase;font-weight:600}
+.weekday-picker{display:flex;flex-wrap:wrap;gap:6px}
+.weekday-toggle{display:inline-flex;position:relative;cursor:pointer;font-size:13px}
+.weekday-toggle input{position:absolute;opacity:0;pointer-events:none}
+.weekday-toggle span{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border:1px solid #1e293b;border-radius:999px;background:#0b1325;color:var(--muted);transition:all .2s}
+.weekday-toggle span::before{content:"";width:14px;height:14px;border:1px solid #1e293b;border-radius:4px;background:#0b1325;transition:all .2s}
+.weekday-toggle input:checked + span{color:var(--text);border-color:var(--accent);box-shadow:0 0 0 2px rgba(14,165,233,0.25);background:rgba(14,165,233,0.12)}
+.weekday-toggle input:checked + span::before{background:var(--accent);border-color:var(--accent);box-shadow:0 0 0 2px rgba(14,165,233,0.25)}
+.schedule-note{font-size:13px;margin:8px 0 0}
+.schedule-block{background:#0b1325;border:1px solid #1e293b;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:10px}
+.schedule-block strong{font-size:13px;letter-spacing:0.05em;text-transform:uppercase;color:var(--muted)}
+.schedule-description{color:var(--muted);font-size:12px}
+.timeline{list-style:none;margin:0;padding:0;display:flex;gap:8px;overflow-x:auto}
+.timeline-item{min-width:72px;background:#0b1325;border:1px solid #1e293b;border-radius:12px;padding:8px 10px;display:flex;flex-direction:column;gap:4px;align-items:flex-start;font-size:12px}
+.timeline-item strong{font-size:14px;color:var(--text)}
+.timeline-day{color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.06em;font-size:11px}
+.timeline-status{font-size:11px;text-transform:uppercase;letter-spacing:0.06em}
+.timeline-item.complete{border-color:rgba(34,197,94,0.6);background:rgba(34,197,94,0.12)}
+.timeline-item.complete .timeline-status{color:var(--success)}
+.timeline-item.missed{border-color:rgba(239,68,68,0.5);background:rgba(239,68,68,0.1)}
+.timeline-item.missed .timeline-status{color:var(--danger)}
+.timeline-item.pending{border-color:rgba(250,204,21,0.5);background:rgba(250,204,21,0.12)}
+.timeline-item.pending .timeline-status{color:#facc15}
+.timeline-item.upcoming{opacity:0.8}
+.timeline-item.today strong{color:var(--accent)}
+.timeline-item.today .timeline-status{color:var(--accent)}
+.timeline-empty{color:var(--muted);font-size:12px;margin:0}
 .hidden{display:none !important}
